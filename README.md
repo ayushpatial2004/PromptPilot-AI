@@ -106,6 +106,18 @@ Compatible with:
 
 ---
 
+## ⚡ Cache-Optimized 3-Layer Prompt Pipeline
+
+Built-in reference for **Gemini Prompt Caching**. The main UI surfaces a collapsible section that explains the three prompt layers and ships a one-click **"Copy Production Python Code"** button:
+
+- **L1 — Static System Instructions** (Fully Cacheable): persona, output contract, scoring rubric.
+- **L2 — Developer Rules** (Cacheable): domain frameworks and mode overlays.
+- **L3 — Dynamic User Input** (Non-Cacheable): the user's prompt plus attachments.
+
+A drop-in Python implementation using the official `google-genai` SDK lives at [`caching_pipeline.py`](caching_pipeline.py). Source-of-truth contents are defined in [`src/config/cachingPipeline.js`](src/config/cachingPipeline.js) and rendered by [`src/components/CachingPipeline.jsx`](src/components/CachingPipeline.jsx).
+
+---
+
 # 🔑 API Setup Guide
 
 PromptPilot AI supports **3 AI providers**. You need an API key from at least one provider to use the extension.
@@ -426,15 +438,20 @@ Edit `manifest.json` to customize:
 
 ## File Descriptions
 
-| File               | Purpose                                      |
-| ------------------ | -------------------------------------------- |
-| `manifest.json`    | Defines extension metadata and permissions   |
-| `background.js`    | Handles background tasks and extension logic |
-| `content.js`       | Injects functionality into web pages         |
-| `App.jsx`          | Main React component                         |
-| `vite.config.js`   | Build configuration                          |
-| `eslint.config.js` | ESLint configuration                         |
-| `.prettierrc`      | Prettier formatting rules                    |
+| File                                  | Purpose                                                                                  |
+| ------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `manifest.json`                       | Defines extension metadata and permissions                                               |
+| `background.js`                       | Handles background tasks and extension logic                                             |
+| `content.js`                          | Injects functionality into web pages                                                     |
+| `App.jsx`                             | Main React component                                                                     |
+| `src/components/`                     | UI components (ScorePanel, ScoreTrends, CachingPipeline, ...)                            |
+| `src/config/cachingPipeline.js`       | Source-of-truth for the 3-layer cache pipeline + reference Python snippet                |
+| `src/scoring/`                        | Client-side prompt scoring engine                                                        |
+| `src/versioningService.js`            | Prompt version history service                                                           |
+| `caching_pipeline.py`                 | Standalone Python reference implementation (Google GenAI SDK) for the 3-layer cache     |
+| `vite.config.js`                      | Build configuration                                                                      |
+| `eslint.config.js`                    | ESLint configuration                                                                     |
+| `.prettierrc`                         | Prettier formatting rules                                                                |
 
 ---
 

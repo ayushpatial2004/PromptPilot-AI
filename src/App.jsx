@@ -8,6 +8,7 @@ import {
 } from './historyComponents';
 import ScorePanel, { MiniScoreBadge } from './components/ScorePanel';
 import ScoreTrends from './components/ScoreTrends';
+import CachingPipeline from './components/CachingPipeline';
 import { scorePrompt } from './scoring/PromptScorer';
 import { saveScore } from './scoring/ScoreHistory';
 
@@ -2533,6 +2534,9 @@ export default function App() {
             </span>
           </div>
         )}
+
+        {/* Caching pipeline reference */}
+        <CachingPipeline />
 
         <div style={{ height: 6, flexShrink: 0 }} />
       </div>
