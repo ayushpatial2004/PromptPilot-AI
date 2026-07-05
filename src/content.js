@@ -519,67 +519,174 @@ import { scorePrompt } from './scoring/PromptScorer.js';
           }
 
           // Define local handler for visual stream rendering
-          function renderResult(r) {
-            const enhanced = r?.enhanced_prompt || '';
-            const textEl = document.getElementById('__pp_enhanced_text');
-            if (!textEl) return;
+          const forgeBtn = $('__pp_forge_btn');
+          const loadingEl = $('__pp_loading');
+          const errorEl = $('__pp_error');
+          const resultEl = $('__pp_result');
 
-            textEl.textContent = '';
-            let i = 0;
-            const tick = setInterval(() => {
-              i += 16;
-              textEl.textContent = enhanced.slice(0, i);
-              if (i >= enhanced.length) {
-                textEl.textContent = enhanced;
-                clearInterval(tick);
-              }
-            }, 30);
+          // UI Lock: Disable button and show loading state
+          forgeBtn.disabled = true;
+          forgeBtn.style.opacity = '0.6';
+          forgeBtn.style.cursor = 'not-allowed';
+          loadingEl.style.display = 'flex';
+          errorEl.style.display = 'none';
+          resultEl.style.display = 'none';
 
-            const actionsDiv = document.getElementById('__pp_actions');
-            if (!actionsDiv || document.getElementById('__pp_download_btn')) return;
+          chrome.runtime.sendMessage({
+            type: 'PP_API',
+            prompt: originalText,
+            domain: domain,
+            mode: mode,
+            provider: pp_provider || 'gemini',
+            apiKey: pp_key,
+            profileRole: pp_profile_role,
+            profileStack: pp_profile_stack,
+            profileRules: pp_profile_rules
+          }, (response) => {
+            // Re-enable UI
+            forgeBtn.disabled = false;
+            forgeBtn.style.opacity = '1';
+            forgeBtn.style.cursor = 'pointer';
+            loadingEl.style.display = 'none';
 
-            const downloadBtn = document.createElement('button');
-            downloadBtn.id = '__pp_download_btn';
-            downloadBtn.className = 'pp-btn-ghost';
-            downloadBtn.textContent = 'Download Prompt';
-            actionsDiv.insertBefore(downloadBtn, actionsDiv.firstChild);
+            if (chrome.runtime.lastError) {
+              errorEl.textContent = 'Extension communication error.';
+              errorEl.style.display = 'block';
+              return;
+            }
 
-            downloadBtn.addEventListener('click', () => {
-              const payload = {
-                format: 'promptpilot.prompt',
-                version: 1,
-                exported_at: Date.now(),
-                prompt: {
-                  enhanced_prompt: r?.enhanced_prompt,
-                  clarity_score: r?.clarity_score,
-                  specificity_score: r?.specificity_score,
-                  quality_score: r?.quality_score,
-                  domain_detected: r?.domain_detected,
-                  missing_requirements: r?.missing_requirements,
-                  transformation_insight: r?.transformation_insight,
-                  ambiguities_resolved: r?.ambiguities_resolved,
-                  provider: r?.provider,
-                  model: r?.model,
-                },
-              };
-
-              const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = `promptpilot-${Date.now()}.json`;
-              a.click();
-              URL.revokeObjectURL(url);
-            });
-          }
-
-          // TODO: Place background message dispatch / logic for chrome.runtime here...
-          // For now, handling generic execution parameters.
+            if (response && response.ok) {
+              renderResult(response.data, originalText, overlayEl);
+              
+              // Persist to history
+              chrome.storage.local.get(['pp_prompts'], (data) => {
+                const prompts = data.pp_prompts || [];
+                const newEntry = {
+                  id: 'pp_' + Date.now(),
+                  original_text: originalText,
+                  updated_at: Date.now(),
+                  versions: [{
+                    ...response.data,
+                    created_at: Date.now(),
+                    provider: pp_provider || 'gemini'
+                  }]
+                };
+                chrome.storage.local.set({ pp_prompts: [newEntry, ...prompts].slice(0, 100) });
+              });
+            } else {
+              errorEl.textContent = response?.error || 'Failed to enhance prompt. Please check your API key.';
+              errorEl.style.display = 'block';
+            }
+          });
         }
       );
     });
 
-    // Copy enhanced button inline text utility
+  // ── Render result ─────────────────────────────────────────────────────
+
+  function renderResult(r, originalText, el) {
+    const $ = (id) => el.querySelector(`#${id}`);
+
+    $('__pp_result').style.display = 'flex';
+
+    // Scores
+    const scores = [
+      {
+        id: 'clarity',
+        val: r.clarity_score,
+        bar: 'clarity-fill',
+        num: '__pp_clarity_num',
+      },
+      {
+        id: 'spec',
+        val: r.specificity_score,
+        bar: 'spec-fill',
+        num: '__pp_spec_num',
+      },
+      {
+        id: 'qual',
+        val: r.quality_score,
+        bar: 'qual-fill',
+        num: '__pp_qual_num',
+      },
+    ];
+    scores.forEach((s) => {
+      const pct = Math.min(100, Math.max(0, s.val || 0));
+      el.querySelector(`#__pp_${s.id}_bar`).style.width = pct + '%';
+      $(s.num).textContent = pct;
+    });
+
+    // Domain badge
+    $('__pp_domain_badge').textContent = r.domain_detected || 'General';
+    $('__pp_insight_text').textContent = r.transformation_insight || '';
+
+    // Enhanced prompt — typing effect
+    const enhanced = r.enhanced_prompt || '';
+    const textEl = $('__pp_enhanced_text');
+    textEl.textContent = '';
+    let i = 0;
+    const tick = setInterval(() => {
+      i += 16;
+      textEl.textContent = enhanced.slice(0, i);
+      if (i >= enhanced.length) {
+        textEl.textContent = enhanced;
+        clearInterval(tick);
+      }
+    }, 16);
+
+    // Diff view
+    const diffEl = $('__pp_diff_body');
+    diffEl.innerHTML = buildDiff(originalText, enhanced);
+
+    // Tags — missing requirements
+    const tagsEl = $('__pp_tags_row');
+    tagsEl.innerHTML =
+      '<div class="pp-tags-label">Requirements added:</div>' +
+      (r.missing_requirements || [])
+        .map((t) => `<span class="pp-tag-yellow">+ ${esc(t)}</span>`)
+        .join('');
+
+    // Ambiguities resolved
+    const ambigEl = $('__pp_ambig_row');
+    if (r.ambiguities_resolved?.length) {
+      ambigEl.innerHTML =
+        '<div class="pp-tags-label">Ambiguities resolved:</div>' +
+        r.ambiguities_resolved
+          .map((t) => `<span class="pp-tag-blue">✓ ${esc(t)}</span>`)
+          .join('');
+    }
+
+    // Download button
+    const actionsDiv = $('__pp_actions');
+    const downloadBtn = document.createElement('button');
+    downloadBtn.id = '__pp_download_btn';
+    downloadBtn.className = 'pp-btn-ghost';
+    downloadBtn.textContent = 'Download Prompt';
+    actionsDiv.insertBefore(downloadBtn, actionsDiv.firstChild);
+
+    downloadBtn.addEventListener('click', () => {
+      const payload = {
+        format: 'promptpilot.prompt',
+        version: 1,
+        exported_at: Date.now(),
+        prompt: {
+          enhanced_prompt: r.enhanced_prompt,
+          clarity_score: r.clarity_score,
+          specificity_score: r.specificity_score,
+          quality_score: r.quality_score,
+          domain_detected: r.domain_detected,
+          missing_requirements: r.missing_requirements,
+          transformation_insight: r.transformation_insight,
+          ambiguities_resolved: r.ambiguities_resolved,
+          provider: r.provider,
+          model: r.model,
+        },
+      };
+      const stamp = new Date().toISOString().slice(0, 10);
+      downloadJson(payload, `promptpilot-prompt-${stamp}.json`);
+      showToast('Prompt exported successfully.', 'success');
+    });
+
     $('__pp_copy_enhanced').addEventListener('click', () => {
       const text = document.getElementById('__pp_enhanced_text')?.textContent || '';
       copyText(text);
@@ -835,4 +942,4 @@ import { scorePrompt } from './scoring/PromptScorer.js';
     };
     // Future expansion logic here if needed
   }
-})();
+}})(); 
